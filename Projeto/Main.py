@@ -550,7 +550,7 @@ class GraphApp:
                 # ── Tolerância ──
                 def _tol(m):
                     try:    return self.calcular_tolerancia_falha(m)
-                    except: return 9999999999
+                    except: return -9999999999
 
                 tolerancia = {
                     "en_gene":    _tol(cores_noc),
@@ -569,7 +569,7 @@ class GraphApp:
                 for nome, energia in tolerancia.items():
                     matriz_str = ", ".join(str(linha) for linha in mapas_noc[nome])
                     print(f"{nome:<15} {energia:<10.2f} {matriz_str}")
-                melhor_map = mapas_noc[min(tolerancia, key=tolerancia.get)]
+                melhor_map = mapas_noc[max(tolerancia, key=tolerancia.get)]
 
             else:
                 # Nenhuma métrica selecionada — usa aleatório como fallback
@@ -617,17 +617,15 @@ class GraphApp:
         # Itera sobre cada célula da matriz
         for i in range(len(matriz)):
             for j in range(len(matriz[i])):
-                # Verifica se a célula contém uma tarefa (número diferente de 0)
-                if matriz[i][j] != 0:
-                    # Verifica se há células adjacentes vazias que têm uma tarefa adjacente
+                # Verifica se a célula contém uma tarefa (não está vazia)
+                if matriz[i][j] != 0 and matriz[i][j] != '':
                     for dx, dy in direcoes:
                         x, y = i + dx, j + dy
-                        # Verifica se a posição está dentro dos limites da matriz
                         if 0 <= x < len(matriz) and 0 <= y < len(matriz[0]):
-                            # Se a célula adjacente estiver vazia (0)
-                            if matriz[x][y] != 0:
+                            # Se a célula adjacente estiver livre, há maior tolerância local à falha
+                            if matriz[x][y] == 0 or matriz[x][y] == '':
                                 tolerancia += 1
-                                
+
         return tolerancia
     
 
