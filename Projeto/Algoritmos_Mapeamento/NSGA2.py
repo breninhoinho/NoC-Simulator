@@ -61,8 +61,8 @@ def calcular_latencia(mapeamento, matrix, dimensao, roteamento):
 
 def calcular_tolerancia_falha(mapeamento, matrix, dimensao):
     """
-    Conta pares de células vizinhas que ambas têm tarefas alocadas.
-    Quanto maior, mais tarefas estão próximas — mais caminhos alternativos existem.
+    Conta células adjacentes livres ao redor de cada tarefa.
+    Quanto maior, maior a capacidade de realocar ou redirecionar em caso de falha.
     Retornamos negativo porque o NSGA-II minimiza todos os objetivos.
     """
     direcoes = [(-1, 0), (1, 0), (0, -1), (0, 1)]
@@ -73,7 +73,7 @@ def calcular_tolerancia_falha(mapeamento, matrix, dimensao):
                 for dx, dy in direcoes:
                     x, y = i + dx, j + dy
                     if 0 <= x < len(mapeamento) and 0 <= y < len(mapeamento[0]):
-                        if mapeamento[x][y] != '':
+                        if mapeamento[x][y] == '':
                             tolerancia += 1
     return tolerancia
 
@@ -174,96 +174,127 @@ def calculate_crowding_distance(front):
 
 
 def generate_random_mapping(dimensao, num_tarefas):
-    # BUGFIX: parâmetros estavam trocados na versão original
     tarefas = list(range(num_tarefas))
     random.shuffle(tarefas)
+    
+    # Todas as posições da matriz
+    todas_posicoes = [(i, j) for i in range(dimensao) for j in range(dimensao)]
+    # Escolhe aleatoriamente quais células vão receber tarefas
+    posicoes_escolhidas = random.sample(todas_posicoes, num_tarefas)
+    
     mapeamento = [['' for _ in range(dimensao)] for _ in range(dimensao)]
-    idx = 0
-    for i in range(dimensao):
-        for j in range(dimensao):
-            if idx < num_tarefas:
-                mapeamento[i][j] = tarefas[idx]
-                idx += 1
+    for idx, (i, j) in enumerate(posicoes_escolhidas):
+        mapeamento[i][j] = tarefas[idx]
+    
     return mapeamento
 
 
 def crossover(parent1, parent2, dimensao):
-    child1 = [row[:] for row in parent1]
-    child2 = [row[:] for row in parent2]
-    for i in range(dimensao // 2):
-        for j in range(dimensao):
-            child1[i][j], child2[i][j] = child2[i][j], child1[i][j]
-    # Garantir que os filhos sejam permutações válidas (sem duplicatas)
-    child1 = _reparar_mapeamento(child1, dimensao, len(parent1) * len(parent1[0]))
-    child2 = _reparar_mapeamento(child2, dimensao, len(parent2) * len(parent2[0]))
-    return child1, child2
+    # Extrair só as tarefas e suas posições
+    def extrair(parent):
+        pos, tar = [], []
+        for i in range(dimensao):
+            for j in range(dimensao):
+                if parent[i][j] != '' and parent[i][j] != -1:
+                    pos.append((i, j))
+                    tar.append(parent[i][j])
+        return pos, tar
+
+    pos1, tar1 = extrair(parent1)
+    pos2, tar2 = extrair(parent2)
+    n = len(tar1)
+    if n < 2:
+        return [row[:] for row in parent1], [row[:] for row in parent2]
+
+    ponto1, ponto2 = sorted(random.sample(range(n), 2))
+
+    # PMX só nas tarefas
+    def pmx_tarefas(t1, t2, p1, p2):
+        filho_tar = [None] * n
+        filho_tar[p1:p2] = t1[p1:p2]
+        segmento = set(t1[p1:p2])
+        pointer = p2
+        for gene in t2:
+            if gene not in segmento:
+                if pointer >= n:
+                    pointer = 0
+                while filho_tar[pointer] is not None:
+                    pointer += 1
+                    if pointer >= n:
+                        pointer = 0
+                filho_tar[pointer] = gene
+                pointer += 1
+        return filho_tar
+
+    tar_filho1 = pmx_tarefas(tar1, tar2, ponto1, ponto2)
+    tar_filho2 = pmx_tarefas(tar2, tar1, ponto1, ponto2)
+
+    # Filho 1 herda posições do parent2, filho 2 herda posições do parent1
+    def montar(posicoes, tarefas):
+        m = [['' for _ in range(dimensao)] for _ in range(dimensao)]
+        pos_embaralhadas = posicoes[:]
+        random.shuffle(pos_embaralhadas)  # embaralha posições para mais diversidade
+        for idx, tarefa in enumerate(tarefas):
+            if idx < len(pos_embaralhadas):
+                i, j = pos_embaralhadas[idx]
+                m[i][j] = tarefa
+        return m
+
+    return montar(pos2, tar_filho1), montar(pos1, tar_filho2)
 
 
-def _reparar_mapeamento(mapeamento, dimensao, total_celulas):
-    """
-    Após crossover, pode haver tarefas duplicadas/faltando.
-    Garante que cada tarefa apareça exatamente uma vez.
-    """
-    num_tarefas = sum(1 for row in mapeamento for v in row if v != '')
-    presentes = {}
-    for i in range(dimensao):
-        for j in range(dimensao):
-            v = mapeamento[i][j]
-            if v != '':
-                if v in presentes:
-                    mapeamento[i][j] = ''  # duplicata → esvazia
-                else:
-                    presentes[v] = (i, j)
-
-    # Tarefas que faltam
-    todas = set(range(num_tarefas))
-    faltando = list(todas - set(presentes.keys()))
-    random.shuffle(faltando)
-
-    idx = 0
-    for i in range(dimensao):
-        for j in range(dimensao):
-            if mapeamento[i][j] == '' and idx < len(faltando):
-                mapeamento[i][j] = faltando[idx]
-                idx += 1
-    return mapeamento
-
-
-def mutate(mapping, dimensao, mutation_rate=0.1):
+def mutate(mapping, dimensao, mutation_rate=0.3):
+    m = [row[:] for row in mapping]
     if random.random() < mutation_rate:
-        i1, j1 = random.randint(0, dimensao-1), random.randint(0, dimensao-1)
-        i2, j2 = random.randint(0, dimensao-1), random.randint(0, dimensao-1)
-        mapping[i1][j1], mapping[i2][j2] = mapping[i2][j2], mapping[i1][j1]
-    return mapping
+        todas = [(i, j) for i in range(dimensao) for j in range(dimensao)]
+        preenchidas = [(i, j) for i, j in todas if m[i][j] != '']
+        vazias = [(i, j) for i, j in todas if m[i][j] == '']
+
+        tipo = random.random()
+        if tipo < 0.4 and len(preenchidas) >= 2:
+            # Troca duas tarefas entre si
+            (i1, j1), (i2, j2) = random.sample(preenchidas, 2)
+            m[i1][j1], m[i2][j2] = m[i2][j2], m[i1][j1]
+        elif tipo < 0.7 and vazias and preenchidas:
+            # Move tarefa para célula vazia
+            (i1, j1) = random.choice(preenchidas)
+            (i2, j2) = random.choice(vazias)
+            m[i2][j2] = m[i1][j1]
+            m[i1][j1] = ''
+        elif preenchidas:
+            # Reorganiza todas as posições aleatoriamente
+            tarefas = [m[i][j] for i, j in preenchidas]
+            random.shuffle(tarefas)
+            for idx, (i, j) in enumerate(preenchidas):
+                m[i][j] = tarefas[idx]
+    return m
 
 
 # ─────────────────────────────────────────────────────────────
 # Algoritmo principal
 # ─────────────────────────────────────────────────────────────
 
-def Run_NSGA2(matrix, dimensao, roteamento, pop_size=20, generations=30,
+def Run_NSGA2(matrix, dimensao, roteamento, pop_size=150, generations=160,
               selecao=[True, True, True], plotar_pareto=True):
-    """
-    Executa o NSGA-II e retorna o melhor mapeamento.
-    Se plotar_pareto=True, exibe o gráfico da frente de Pareto ao final.
-    """
+
     num_objetivos = sum(selecao)
     if num_objetivos < 2:
         raise ValueError("NSGA-II requer pelo menos 2 objetivos selecionados.")
 
     num_tarefas = len(matrix)
 
-    # População inicial
     population = [
         Individuo(generate_random_mapping(dimensao, num_tarefas),
                   matrix, dimensao, roteamento, selecao)
         for _ in range(pop_size)
     ]
 
+    objetivos_unicos = set(tuple(ind.objetivos) for ind in population)
+    print(f"Geração 0: {len(objetivos_unicos)} objetivos únicos de {pop_size} indivíduos")
+
     for gen in range(generations):
         offspring = []
         while len(offspring) < pop_size:
-            # Torneio binário para seleção
             p1 = _torneio(population)
             p2 = _torneio(population)
             c1_map, c2_map = crossover(p1.mapeamento, p2.mapeamento, dimensao)
@@ -274,7 +305,17 @@ def Run_NSGA2(matrix, dimensao, roteamento, pop_size=20, generations=30,
                 offspring.append(Individuo(c2_map, matrix, dimensao, roteamento, selecao))
 
         combined = population + offspring
-        fronts   = fast_non_dominated_sort(combined)
+        fronts = fast_non_dominated_sort(combined)
+
+        objetivos_unicos = set(tuple(ind.objetivos) for ind in combined)
+        mapeamentos_unicos = set(
+            tuple(ind.mapeamento[r][c]
+                  for r in range(dimensao) for c in range(dimensao))
+            for ind in combined
+        )
+        print(f"Geração {gen+1}: {len(objetivos_unicos)} obj únicos | "
+              f"{len(mapeamentos_unicos)} mapeamentos únicos | "
+              f"frente Pareto: {len(fronts[0])}")
 
         new_population = []
         i = 0
@@ -289,18 +330,22 @@ def Run_NSGA2(matrix, dimensao, roteamento, pop_size=20, generations=30,
 
         population = new_population
 
-    # Frente de Pareto final (rank 0)
     fronts = fast_non_dominated_sort(population)
     pareto_front = fronts[0]
+
+    print(f"\n=== Frente de Pareto ({len(pareto_front)} indivíduos) ===")
+    for i, ind in enumerate(pareto_front):
+        print(f"\nIndivíduo {i+1}:")
+        for linha in ind.mapeamento:
+            print("  ", linha)
+        print(f"  Objetivos: {ind.objetivos}")
 
     if plotar_pareto:
         plotar_frente_pareto(pareto_front, selecao)
 
-    # Retorna o indivíduo com maior crowding distance da frente de Pareto
     calculate_crowding_distance(pareto_front)
     best = max(pareto_front, key=lambda x: x.crowding_distance)
     return best.mapeamento
-
 
 def _torneio(population, k=2):
     """Seleção por torneio binário."""
@@ -308,11 +353,6 @@ def _torneio(population, k=2):
     return min(candidatos, key=lambda x: (x.rank, -x.crowding_distance))
 
 
-# ─────────────────────────────────────────────────────────────
-# Visualização da frente de Pareto
-# ─────────────────────────────────────────────────────────────
-
-# Nomes e rótulos para cada objetivo (índice 0, 1, 2)
 _NOMES_OBJ = ["Energia", "Latência", "Tolerância"]
 _LABELS_OBJ = ["Energia (bandwidth × hops)", "Latência (max hop × bw)", "Tolerância (−vizinhos)"]
 
@@ -393,3 +433,55 @@ def plotar_frente_pareto(pareto_front, selecao):
     plt.tight_layout()
     plt.savefig("pareto_front.png", dpi=120, bbox_inches='tight')
     plt.show()
+
+"""
+import random
+
+# 16 tarefas numa grade 5x5 (25 células, 9 vazias) — força trade-offs reais
+n = 16
+matrix_adj = [[0]*n for _ in range(n)]
+
+# Comunicações assimétricas e densas com pesos variados
+comunicacoes = [
+    (0,1,850), (0,2,120), (0,4,430), (0,7,90),
+    (1,2,2300),(1,3,670), (1,5,180), (1,8,340),
+    (2,3,980), (2,4,7800),(2,6,230), (2,9,560),
+    (3,5,3400),(3,6,780), (3,7,120), (3,10,450),
+    (4,5,290), (4,6,1200),(4,8,670), (4,11,890),
+    (5,6,4500),(5,7,340), (5,9,780), (5,12,230),
+    (6,7,1800),(6,8,560), (6,10,340),(6,13,670),
+    (7,8,290), (7,9,2100),(7,11,450),(7,14,120),
+    (8,9,3200),(8,10,670),(8,12,890),(8,15,560),
+    (9,10,450),(9,11,1800),(9,13,340),
+    (10,11,2700),(10,12,560),(10,14,780),
+    (11,12,890),(11,13,4200),(11,15,230),
+    (12,13,670),(12,14,340),(12,15,1200),
+    (13,14,3800),(13,15,560),
+    (14,15,2100),
+    # comunicações de volta (assimétricas)
+    (1,0,320), (2,1,890), (3,2,450), (4,3,670),
+    (5,4,120), (6,5,1800),(7,6,560), (8,7,340),
+    (9,8,780), (10,9,230),(11,10,890),(12,11,450),
+    (13,12,1200),(14,13,670),(15,14,340),
+    # conexões longas que conflitam com energia
+    (0,15,2300),(1,14,1800),(2,13,3400),(3,12,890),
+    (4,11,2100),(5,10,1500),(6,9,780), (7,8,340),
+]
+
+for i, j, bw in comunicacoes:
+    matrix_adj[i][j] = bw
+
+melhor = Run_NSGA2(
+    matrix=matrix_adj,
+    dimensao=5,
+    roteamento="XY",
+    pop_size=150,
+    generations=150,
+    selecao=[True, True, True],
+    plotar_pareto=True
+)
+
+print("\n=== Melhor Mapeamento ===")
+for linha in melhor:
+    print(linha)
+"""

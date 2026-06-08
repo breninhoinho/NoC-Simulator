@@ -271,9 +271,21 @@ def encontrar_posicao(tarefa):
 # função para animar um pacote com base no dicionário de controle
 def animar_pacote():
     global direcoes , arbitro, id_texto_arbitro, animando, after_id
+    global chegos_total, perdidos_total 
     animando = True
+
     direcoes = noc.rodar(2)
-    
+
+    noc.ajusta_pacotes_chegos()      
+    noc.ajusta_pacotes_perdido()  
+
+    chegos_total = noc.total_pacotes_chegos[-1]      
+    perdidos_total = noc.total_pacotes_perdidos[-1]
+
+    #print(f"{noc.total_pacotes_chegos}  {noc.total_pacotes_perdidos}")
+
+    desenhar_metricas()   
+
     #ajustar árbitro
     arbitro += 1
     lista_Árbitro = [ "Oeste", "Cpu", "Norte", "Leste", "Sul"]
@@ -409,7 +421,56 @@ def recomecar():
     canvas.delete("all")
     centros_maiores, centros_menores = desenhar_matriz(tam[0])
     criar_pacotes_e_alocar()
+    desenhar_metricas() 
 
+
+id_metricas = {"chegos": None, "perdidos": None, "titulo": None}
+
+def desenhar_metricas():
+    global id_metricas
+    e = calcular_escala(tam[0])
+    px = e["px"]
+    cel_map = e["cel_map"]
+    gap = max(3, int(cel_map * 0.15))
+    n = tam[0]
+
+    img_sz = e["img_sz"]
+    py_base = int(altura_canvas * 0.05)
+    img_y = py_base + int(altura_canvas * 0.04) + img_sz
+    rot_y = img_y + int(altura_canvas * 0.03)
+    cpu_leg_y = rot_y + int(altura_canvas * 0.07)
+    cpu_box = max(20, int(img_sz * 0.18))
+    map_title_y = cpu_leg_y + cpu_box // 2 + int(altura_canvas * 0.04)
+    mat_y0 = map_title_y + int(altura_canvas * 0.04)
+    mat_bottom = mat_y0 + n * (cel_map + gap)
+
+    btn_h = max(20, int(altura_canvas * 0.04))
+    metricas_y = mat_bottom + btn_h + 30
+
+    font_titulo = ("Arial", max(9, int(img_sz * 0.07)), "bold")
+    font_valor  = ("Arial", max(9, int(img_sz * 0.07)), "normal")
+    linha_h = max(16, int(img_sz * 0.09))
+
+    for key in id_metricas:
+        if id_metricas[key]:
+            canvas.delete(id_metricas[key])
+
+    id_metricas["titulo"] = canvas.create_text(
+        px, metricas_y,
+        text="Métricas:", fill="black",
+        font=font_titulo, anchor="n"
+    )
+    id_metricas["chegos"] = canvas.create_text(
+        px, metricas_y + linha_h,
+        text=f"✔ Chegados: {chegos_total}", fill="#2e7d32",
+        font=font_valor, anchor="n"
+    )
+    id_metricas["perdidos"] = canvas.create_text(
+        px, metricas_y + linha_h * 2,
+        text=f"✘ Perdidos: {perdidos_total}", fill="#c62828",
+        font=font_valor, anchor="n"
+    )
+    
 def carregar_config_json():
     with open('config.json', 'r') as f:
         config = json.load(f)
@@ -427,9 +488,12 @@ def carregar_config_json():
 
     return config['matriz_adj'], config['melhor_mapeamento'], config['n'], config['roteamento']
 
-global arbitro 
-global noc  
+global arbitro, chegos_total, perdidos_total
 arbitro = 0
+chegos_total = 0
+perdidos_total = 0
+
+global noc  
 
 # Criação da janela principal e do canvas
 janela = tk.Tk()
@@ -475,6 +539,7 @@ def on_resize(event):
         canvas.delete("all")
         centros_maiores, centros_menores = desenhar_matriz(tam[0])
         criar_pacotes_e_alocar()
+        desenhar_metricas()  
     _resize_job = janela.after(150, _do_redraw)
 
 

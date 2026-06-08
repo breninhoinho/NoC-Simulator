@@ -199,7 +199,7 @@ class Noc:
 
 class Roteador:
 
-    max_packets_buffer = 8 # variável global para definir a quantidade máxima de itens
+    max_packets_buffer = 256 # variável global para definir a quantidade máxima de itens
 
     def __init__(self, posicao, noc):
         self.posicao = posicao  # posicao na matriz de noc
@@ -367,22 +367,26 @@ class Pacote():
 """
 mapeamento = [
     [0, 1],  # Roteador (0,0) tem Tarefa 1, e Roteador (0,1) tem Tarefa 2
-   [2, 3]   # Roteador (1,0) tem Tarefa 3, e Roteador (1,1) tem Tarefa 4
+   ["", ""]   # Roteador (1,0) tem Tarefa 3, e Roteador (1,1) tem Tarefa 4
 ]
 
 matriz_adjacencia = [
-    [0, 1, 1, 0],  # Tarefa 1 se comunica com Tarefa 2 e 3
-    [1, 0, 0, 1],  # Tarefa 2 se comunica com Tarefa 1 e 4
-    [1, 0, 0, 1],  # Tarefa 3 se comunica com Tarefa 1 e 4
-    [0, 1, 1, 0]   # Tarefa 4 se comunica com Tarefa 2 e 3
+    [0, 1 ],  # Tarefa 1 se comunica com Tarefa 2 e 3
+    [0, 0, ],  # Tarefa 2 se comunica com Tarefa 1 e 4
+ # Tarefa 4 se comunica com Tarefa 2 e 3
 ]
 
 noc1 = Noc(2, "XY", matriz_adjacencia, mapeamento)
 
-for i in range(2):
-    for j in range(2):
-        print( f"({i},{j})" , noc1.matriz_roteadores[i][j].buffers)
+for _ in range(6):
+    for i in range(2):
+        for j in range(2):
+            print( f"({i},{j})" , noc1.matriz_roteadores[i][j].buffers)
+    print("----")
+    print(noc1.rodar(2))
+
 """
+
 """
 noc1 = Noc(4 , "Negative First")
 pacote = Pacote((3,1),(1,3),1)
